@@ -1,39 +1,31 @@
-﻿cls
+﻿param ([Parameter(Mandatory=$True, Position=0, ValueFromPipeline=$true) ][String]$file,
+       [Parameter(Mandatory=$false,Position=1, ValueFromPipeline=$false)][String]$passwordFile)
 
+if($passwordFile.Length -eq 0 -or -not (Test-Path $passwordFile)){
+    $passwordFile = ($Env:ZipExtracter + "passwords.csv")
+}
 
+$ErrorActionPreference = "SilentlyContinue"  #para que deje de mostrar mensajes de error : los prints consumen recursos
+$salida = $file.Substring(0, $file.LastIndexOf(".")) 
 
-    $ErrorActionPreference = "SilentlyContinue"  #para que deje de mostrar mensajes de error : los prints consumen recursos
-    $file = "C:\Users\fmarkowicz\Desktop\NovaMas\Desafio1\Archivo#S1.zip"
-    $salida = $file.Substring(0, $file.LastIndexOf(".")) 
+$elapsed = [System.Diagnostics.Stopwatch]::StartNew()  #contador de tiempo
 
-
-    $elapsed = [System.Diagnostics.Stopwatch]::StartNew()  #contador de tiempo
-
-    write-host "Started at $(get-date)"
-    $i=0
-    $pass = Get-Content .\passwords-1M.csv # | Sort-Object {Get-Random}
-    $file
-    "tiempo consiguiendo "+$pass.Length +" contraseñas: "+$elapsed.Elapsed.ToString()
-    $elapsed = [System.Diagnostics.Stopwatch]::StartNew()  #contador de tiempo
+write-host "Started at $(get-date)"
+$pass = Get-Content $passwordFile | Sort-Object {Get-Random}
+#"tiempo consiguiendo "+$pass.Length +" contraseñas: "+$elapsed.Elapsed.ToString()
+$elapsed = [System.Diagnostics.Stopwatch]::StartNew()  #contador de tiempo
    
-    $desde = 0;
+$desde = 0;
 
-    # the number of threads
-    $count = 3
-    $cantXJob = [int]($pass.Length/$count)+1
+$count = 3
+$cantXJob = [int]($pass.Length/$count)+1
 
-    $dir = (dir)[0].DirectoryName
+$dir = (dir)[0].DirectoryName
 
-    
-# the pool will manage the parallel execution
 $pool = [RunspaceFactory]::CreateRunspacePool(1, $count)
-
 try {    
     $pool.Open()
 
-
-
-    # create and run the jobs to be run in parallel
     $jobs = New-Object object[] $count
  
     "Creando "+($count)+" jobs de $cantXJob palabras"
@@ -41,7 +33,6 @@ try {
         $ps = [PowerShell]::Create()
         $ps.RunspacePool = $pool
        
-        # add the script block to run
         [void]$ps.AddScript({
             param($pass, $jobNumber, $file, $salida, $cantXJob, $dir, $jobs)
             
@@ -50,14 +41,13 @@ try {
             $dir="C:\tempUnZiper$jobNumber"
 
             New-Item -Path $dir -ItemType Directory | %{$_.Attributes = "hidden"}
-            #attrib +h "tempUnZiper$jobNumber" 
 
             $pudoDescomprimir = $false
             $i=0
             
-            $init = "& C:\Users\fmarkowicz\Desktop\NovaMas\Desafio1\7z.exe x $file -p"
+            $init = "& `""+$Env:ZipExtracter+"7z.exe`" x `"$file`" -p"
             
-            $end = " -o$dir -mmt -aoa"
+            $end = " -o`"$dir`" -mmt -aoa"
             #crear hilos para enviar secciones de 50 contraseñas (cant thread = $pass.Length/50) para mejorar esa performance
             foreach ($line in $pass){
                 $i++;
@@ -92,7 +82,6 @@ try {
         $copy = $pass[$desde..$hasta]
 
 
-        # optional: add parameters
         [void]$ps.AddParameter("pass", $copy)
         [void]$ps.AddParameter("jobNumber", $jobsNumber)
         [void]$ps.AddParameter("file", $file)
@@ -102,7 +91,6 @@ try {
         [void]$ps.AddParameter("jobs", $jobs)
 
 
-        # start async execution
         $jobs[$jobsNumber] = [PSCustomObject]@{
             PowerShell = $ps
             AsyncResult = $ps.BeginInvoke()
@@ -112,7 +100,7 @@ try {
     $isAllCompl = $false
     $isCompleted = $false
     while(-not $isCompleted -and -not $isAllCompl ){
-        sleep -Milliseconds 500
+        sleep -Milliseconds 250
         $isAllCompl = $true
         foreach ($job in $jobs) {
             try {
